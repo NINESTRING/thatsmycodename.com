@@ -22,6 +22,8 @@ jobs:
       packages: write # push the image to GHCR
     env:
       PUBLISH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -66,3 +68,38 @@ jobs:
         run: |
           git tag "$VERSION"
           git push origin "$VERSION"
+
+  # Point the cluster at the new image: bump the tag in the GitOps repo, which Argo CD then syncs.
+  # GITOPS_DEPLOY_KEY is a write deploy key that is valid for NINESTRING/homelab-gitops only.
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions: {}
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      MANIFEST: kubernetes/apps/site/deployment.yaml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: NINESTRING/homelab-gitops
+          ssh-key: ${{ secrets.GITOPS_DEPLOY_KEY }}
+
+      - name: Bump the image tag
+        run: |
+          sed -i -E "s#(image: ${IMAGE}):[0-9.]+#\\1:${VERSION}#" "$MANIFEST"
+          grep -q "image: ${IMAGE}:${VERSION}\$" "$MANIFEST" # fail if the manifest no longer matches
+          if git diff --quiet; then
+            echo "Already at ${VERSION}"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "site: deploy ${VERSION}" \
+            -m "Built from ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+          # Retry when the GitOps repo moved in the meantime.
+          for attempt in 1 2 3; do
+            git push && exit 0
+            git pull --rebase
+          done
+          exit 1
