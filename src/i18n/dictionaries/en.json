@@ -3,8 +3,32 @@
     "title": "thatsmycodename",
     "description": "Portfolio, resume, and blog"
   },
+  "nav": {
+    "projects": "Projects",
+    "resume": "Resume",
+    "blog": "Blog"
+  },
+  "header": {
+    "home": "Home",
+    "openMenu": "Open menu",
+    "menu": "Menu",
+    "toggleTheme": "Toggle light/dark theme",
+    "switchLanguage": "한국어로 보기"
+  },
+  "footer": {
+    "github": "GitHub"
+  },
   "home": {
-    "heading": "Coming soon",
-    "body": "A portfolio, resume, and blog are on their way."
-  }
+    "eyebrow": "Software Engineer",
+    "heading": "Build. Refine. Write it down.",
+    "body": "A home for the things I have made, the work I have done, and what I learned along the way.",
+    "primaryCta": "View projects",
+    "secondaryCta": "Read resume",
+    "sections": {
+      "projects": "Things I have built and run myself.",
+      "resume": "Experience and skills on a single page.",
+      "blog": "Notes on what I learn while building."
+    }
+  },
+  "comingSoon": "Coming soon."
 }

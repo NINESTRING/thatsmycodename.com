@@ -3,8 +3,32 @@
     "title": "thatsmycodename",
     "description": "포트폴리오, 이력서, 블로그"
   },
+  "nav": {
+    "projects": "프로젝트",
+    "resume": "이력서",
+    "blog": "블로그"
+  },
+  "header": {
+    "home": "홈",
+    "openMenu": "메뉴 열기",
+    "menu": "메뉴",
+    "toggleTheme": "라이트/다크 테마 전환",
+    "switchLanguage": "Switch to English"
+  },
+  "footer": {
+    "github": "GitHub"
+  },
   "home": {
-    "heading": "준비 중입니다",
-    "body": "포트폴리오, 이력서, 블로그가 곧 이곳에 올라옵니다."
-  }
+    "eyebrow": "소프트웨어 엔지니어",
+    "heading": "만들고, 다듬고, 기록합니다.",
+    "body": "제가 만든 것들과 일해 온 이력, 그리고 그 과정에서 배운 것을 이곳에 모아 둡니다.",
+    "primaryCta": "프로젝트 보기",
+    "secondaryCta": "이력서 보기",
+    "sections": {
+      "projects": "직접 만들고 운영한 프로젝트를 소개합니다.",
+      "resume": "경력과 기술 스택을 한 페이지로 정리했습니다.",
+      "blog": "개발하며 배운 것과 생각을 글로 남깁니다."
+    }
+  },
+  "comingSoon": "준비 중입니다."
 }
