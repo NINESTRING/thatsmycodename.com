@@ -116,7 +116,7 @@ Building an amd64 image on an arm64 Mac goes through emulation, so it is slower 
 
 ### 3. What gets deployed is the code on the remote branch
 
-By default act skips the `actions/checkout` step and uses the local working directory as it is. Deploying that way puts uncommitted changes into the build.
+By default act does not fetch the remote repository in the `actions/checkout` step. It copies the local working directory into the container instead. Deploying that way puts uncommitted changes into the build.
 
 Our workflows avoid this by naming the branch in the checkout step.
 
