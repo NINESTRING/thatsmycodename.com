@@ -30,5 +30,8 @@
       "blog": "Notes on what I learn while building."
     }
   },
-  "comingSoon": "Coming soon."
+  "blog": {
+    "lead": "Notes on what I learn while building.",
+    "backToList": "All posts"
+  }
 }

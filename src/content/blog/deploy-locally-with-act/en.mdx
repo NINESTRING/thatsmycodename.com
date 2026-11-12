@@ -1,0 +1,159 @@
+export const metadata = {
+  title: "Running GitHub Actions workflows on my own machine: deploying with act",
+  description: "How I deploy by running GitHub Actions workflows in local Docker with act, what I learned along the way, and why I only do it on projects I own alone.",
+};
+
+## What one deploy costs in time and money
+
+GitHub Actions is convenient, but it is not free. Private repositories are charged runner time by the minute, and you pay once the free allowance runs out. A deploy workflow that builds and pushes a Docker image uses several minutes each time, so frequent deploys add up quickly.
+
+Speed is the other problem. A runner starts empty every time, so there is no Docker layer cache, and you also wait for a runner to be assigned.
+
+Meanwhile, a computer with Docker running is already sitting on my desk. So on projects I own alone, I deploy by running the workflow locally with [act](https://github.com/nektos/act).
+
+## What act is
+
+act is a CLI tool that reads the workflow files in `.github/workflows/` and runs each job inside a local Docker container. Docker on my machine plays the runner in place of GitHub's.
+
+The workflow files stay as they are. The same YAML runs on GitHub and locally.
+
+## Why it is cheaper and faster
+
+- **Runner time is zero minutes.** Everything runs on my machine, so no GitHub Actions usage is charged.
+- **The Docker layer cache stays.** act builds images with the host's Docker daemon, so layers from the previous build are reused. If the dependency install layer has not changed, that step is skipped.
+- **There is no waiting.** No waiting for a push, no waiting for a runner. The run starts as soon as you type the command.
+
+## Installing and the first run
+
+Docker has to be running. On macOS, install act with Homebrew.
+
+```bash
+brew install act
+```
+
+The first run asks which runner image size you want (Micro / Medium / Large). Choosing Medium saves a mapping like this in the config file (actrc).
+
+```text
+-P ubuntu-latest=catthehacker/ubuntu:act-latest
+-P ubuntu-22.04=catthehacker/ubuntu:act-22.04
+```
+
+It decides which Docker image stands in for `runs-on: ubuntu-latest` in a workflow. These images are much lighter than GitHub's real runners, and some tools are missing as a result.
+
+## Deploying
+
+Our server's workflows build a Docker image and push it to Amazon ECR, then deploy dev over SSH and production to ECS. Locally, I run them like this.
+
+```bash
+# deploy dev
+act -W .github/workflows/dev.yml
+
+# deploy production
+act -W .github/workflows/prod.yml
+```
+
+With no event given, act runs the `push` event. Both of our workflows are `on: push`, so naming the file is enough.
+
+A few other commands I use often.
+
+```bash
+act -l          # list the jobs that can run
+act -j build    # run one job only
+act -n          # dry run: show the flow without executing
+```
+
+## Handling secrets
+
+Workflows refer to values such as `${{ secrets.ECR_REGISTRY }}`. There is no GitHub secret store locally, so you have to supply them yourself.
+
+By default act reads a `.secrets` file in the directory it runs from. The format is the same as `.env`.
+
+```text
+ECR_REGISTRY=...
+ECR_REPOSITORY=...
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+```
+
+**Always add `.secrets` to `.gitignore`.** The file holds AWS keys and an SSH private key in plain text.
+
+## What I learned by using it
+
+### 1. The runner image lacks some tools
+
+GitHub's `ubuntu-latest` runner has the AWS CLI installed, but act's Medium image does not. A step in the production workflow that calls `aws ecs describe-task-definition` failed only locally.
+
+So I added an install step to the workflow.
+
+```yaml
+# Only needed under act. GitHub Actions runners already have the AWS CLI.
+- name: Install AWS CLI v2
+  run: |
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o /tmp/awscliv2.zip
+    unzip -q /tmp/awscliv2.zip -d /tmp
+    sudo /tmp/aws/install --update
+```
+
+It uses `$(uname -m)` because containers come up as arm64 on an Apple Silicon Mac.
+
+To run this step only locally, you can add a condition on the `ACT` environment variable, which act sets automatically.
+
+```yaml
+- name: Install AWS CLI v2
+  if: ${{ env.ACT }}
+  run: ...
+```
+
+### 2. On Apple Silicon you have to mind the architecture
+
+On an M-series Mac, containers run as arm64 by default. If the server is amd64, the image build has to name the platform.
+
+```bash
+docker build --platform=linux/amd64 -t $IMAGE_TAG .
+```
+
+Building an amd64 image on an arm64 Mac goes through emulation, so it is slower than a native build.
+
+### 3. What gets deployed is the code on the remote branch
+
+By default act skips the `actions/checkout` step and uses the local working directory as it is. Deploying that way puts uncommitted changes into the build.
+
+Our workflows avoid this by naming the branch in the checkout step.
+
+```yaml
+- name: Checkout github code
+  uses: actions/checkout@v4
+  with:
+    ref: 'master'
+    token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+```
+
+With `ref` set, act really runs the checkout and fetches that branch from the remote repository. Even when the run is local, the guarantee that only pushed code is deployed holds, as it does on GitHub.
+
+The thing to watch is the opposite direction. Commits that have not been pushed are not deployed, so I check that I have pushed before deploying.
+
+```bash
+git log origin/master..   # should print nothing
+```
+
+For a private repository, the token for fetching the code from the remote has to be in `.secrets`.
+
+### 4. It is not identical to GitHub
+
+Features that depend on GitHub's infrastructure, such as OIDC-based authentication (`role-to-assume`), do not work locally. We supply credentials as access keys.
+
+## Why only on projects I own alone
+
+Deploying with act buys cost and speed, and gives some things up in return.
+
+- **No deploy history is kept.** GitHub's Actions tab records who deployed which commit and when, while act's run log exists only in my terminal.
+- **Deploys are tied to my machine.** The secrets file and the Docker environment live on my computer, so anyone else who wants to run the same deploy has to prepare the same things.
+- **Production credentials sit locally in plain text.**
+
+On a project I own alone, these three are not a big problem, because I am the only one who deploys. On a project where several people deploy, history and reproducibility matter more, so it is better to stay on GitHub's runners.
+
+Because the workflow files are unchanged, the project can go back to GitHub Actions without touching anything when more people join.
+
+## Wrapping up
+
+act is not a choice to abandon GitHub Actions. It is a choice of where to run the same workflow. If runner costs and build waits bother you on a project you own alone, you can start with `brew install act` and a single `act -W`.

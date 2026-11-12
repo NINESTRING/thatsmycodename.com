@@ -137,3 +137,12 @@
 @utility container-page {
   @apply mx-auto w-full max-w-5xl px-5 sm:px-8;
 }
+
+/* Syntax colors for code blocks in MDX: rehype-pretty-code sets both themes as variables. */
+[data-rehype-pretty-code-figure] span {
+  color: var(--shiki-light);
+}
+
+.dark [data-rehype-pretty-code-figure] span {
+  color: var(--shiki-dark);
+}

@@ -1,0 +1,159 @@
+export const metadata = {
+  title: "GitHub Actions 워크플로를 내 컴퓨터에서 돌린다: act로 배포하기",
+  description: "GitHub Actions 워크플로를 act로 로컬 Docker에서 실행해 배포하는 방법과 써 보며 알게 된 주의점, 그리고 혼자 담당하는 프로젝트에만 쓰는 이유를 정리합니다.",
+};
+
+## 배포 한 번에 드는 시간과 비용
+
+GitHub Actions는 편하지만 공짜가 아닙니다. 비공개 저장소는 러너 사용 시간이 분 단위로 차감되고, 무료 제공량을 넘으면 과금됩니다. Docker 이미지를 빌드해 올리는 배포 워크플로는 한 번에 몇 분씩 쓰기 때문에, 배포가 잦으면 금방 쌓입니다.
+
+속도도 아쉽습니다. 러너는 매번 빈 상태에서 시작하므로 Docker 레이어 캐시가 없고, 러너가 배정될 때까지 기다리는 시간도 있습니다.
+
+그런데 제 책상 위에는 이미 Docker가 돌아가는 컴퓨터가 있습니다. 그래서 혼자 담당하는 프로젝트는 [act](https://github.com/nektos/act)로 워크플로를 로컬에서 실행해 배포하고 있습니다.
+
+## act란
+
+act는 `.github/workflows/`의 워크플로 파일을 읽어서, 각 job을 로컬 Docker 컨테이너 안에서 실행해 주는 CLI 도구입니다. GitHub의 러너 대신 내 컴퓨터의 Docker가 러너 역할을 합니다.
+
+워크플로 파일은 그대로 둡니다. 같은 YAML을 GitHub에서도, 로컬에서도 실행할 수 있습니다.
+
+## 왜 비용과 속도가 줄어드는가
+
+- **러너 사용 시간이 0분입니다.** 실행이 전부 내 컴퓨터에서 일어나므로 GitHub Actions 사용량이 차감되지 않습니다.
+- **Docker 레이어 캐시가 남습니다.** act는 호스트의 Docker 데몬으로 이미지를 빌드하므로, 이전 빌드의 레이어를 재사용합니다. 의존성 설치 레이어가 바뀌지 않았다면 그 단계는 건너뜁니다.
+- **대기 시간이 없습니다.** 푸시를 기다릴 필요도, 러너 배정을 기다릴 필요도 없이 명령을 치면 바로 시작합니다.
+
+## 설치와 첫 실행
+
+Docker가 실행 중이어야 합니다. macOS에서는 Homebrew로 설치합니다.
+
+```bash
+brew install act
+```
+
+처음 실행하면 러너 이미지 크기(Micro / Medium / Large)를 묻습니다. Medium을 고르면 설정 파일(actrc)에 아래와 같은 매핑이 저장됩니다.
+
+```text
+-P ubuntu-latest=catthehacker/ubuntu:act-latest
+-P ubuntu-22.04=catthehacker/ubuntu:act-22.04
+```
+
+워크플로의 `runs-on: ubuntu-latest`를 어떤 Docker 이미지로 대체할지 정하는 설정입니다. 이 이미지는 GitHub의 실제 러너보다 훨씬 가볍고, 그만큼 빠진 도구가 있습니다.
+
+## 배포하기
+
+저희 서버의 워크플로는 Docker 이미지를 빌드해 Amazon ECR에 올리고, dev는 SSH로, 운영은 ECS로 배포합니다. 로컬에서는 이렇게 실행합니다.
+
+```bash
+# dev 배포
+act -W .github/workflows/dev.yml
+
+# 운영 배포
+act -W .github/workflows/prod.yml
+```
+
+이벤트를 지정하지 않으면 `push` 이벤트로 실행됩니다. 저희 워크플로는 둘 다 `on: push`라서 파일만 지정하면 됩니다.
+
+그 밖에 자주 쓰는 명령입니다.
+
+```bash
+act -l          # 실행 가능한 job 목록
+act -j build    # 특정 job만 실행
+act -n          # 실제로 실행하지 않고 흐름만 확인
+```
+
+## 시크릿 다루기
+
+워크플로는 `${{ secrets.ECR_REGISTRY }}` 같은 값을 참조합니다. 로컬에는 GitHub의 시크릿 저장소가 없으니 직접 넣어 줘야 합니다.
+
+act는 실행 디렉터리의 `.secrets` 파일을 기본으로 읽습니다. 형식은 `.env`와 같습니다.
+
+```text
+ECR_REGISTRY=...
+ECR_REPOSITORY=...
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+```
+
+**`.secrets`는 반드시 `.gitignore`에 넣으세요.** 이 파일에는 AWS 키와 SSH 개인 키가 평문으로 들어 있습니다.
+
+## 써 보며 알게 된 것들
+
+### 1. 러너 이미지에 없는 도구가 있다
+
+GitHub의 `ubuntu-latest` 러너에는 AWS CLI가 설치되어 있지만, act의 Medium 이미지에는 없습니다. 운영 워크플로에서 `aws ecs describe-task-definition`을 호출하는 단계가 로컬에서만 실패했습니다.
+
+그래서 워크플로에 설치 단계를 넣었습니다.
+
+```yaml
+# act 사용시에만 필요. github actions에서는 aws cli 이미 설치 되어 있음
+- name: Install AWS CLI v2
+  run: |
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o /tmp/awscliv2.zip
+    unzip -q /tmp/awscliv2.zip -d /tmp
+    sudo /tmp/aws/install --update
+```
+
+`$(uname -m)`을 쓴 이유는 Apple Silicon 맥에서 컨테이너가 arm64로 뜨기 때문입니다.
+
+이 단계를 로컬에서만 실행하고 싶다면, act가 자동으로 설정하는 `ACT` 환경 변수로 조건을 걸 수 있습니다.
+
+```yaml
+- name: Install AWS CLI v2
+  if: ${{ env.ACT }}
+  run: ...
+```
+
+### 2. Apple Silicon에서는 아키텍처를 의식해야 한다
+
+M 시리즈 맥에서는 컨테이너가 기본적으로 arm64로 실행됩니다. 서버가 amd64라면 이미지 빌드 시 플랫폼을 명시해야 합니다.
+
+```bash
+docker build --platform=linux/amd64 -t $IMAGE_TAG .
+```
+
+amd64 이미지를 arm64 맥에서 빌드하면 에뮬레이션을 거치므로, 네이티브 빌드보다는 느립니다.
+
+### 3. 배포되는 것은 원격 브랜치의 코드다
+
+act는 기본적으로 `actions/checkout` 단계를 건너뛰고 로컬 작업 디렉터리를 그대로 사용합니다. 이 상태로 배포하면 커밋하지 않은 변경까지 빌드에 들어갑니다.
+
+저희 워크플로는 checkout에 브랜치를 명시해서 이 문제를 피합니다.
+
+```yaml
+- name: Checkout github code
+  uses: actions/checkout@v4
+  with:
+    ref: 'master'
+    token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+```
+
+`ref`를 지정하면 act도 실제로 checkout을 실행해 원격 저장소에서 해당 브랜치를 받아 옵니다. 로컬에서 실행하더라도 GitHub에서와 같이 "푸시된 코드만 배포된다"는 보장이 유지됩니다.
+
+주의할 점은 반대 방향입니다. 푸시하지 않은 커밋은 배포되지 않으므로, 배포 전에 푸시했는지 확인합니다.
+
+```bash
+git log origin/master..   # 출력이 없어야 한다
+```
+
+비공개 저장소라면 원격에서 코드를 받기 위한 토큰을 `.secrets`에 넣어 둬야 합니다.
+
+### 4. GitHub과 완전히 같지는 않다
+
+OIDC 기반 인증(`role-to-assume`)처럼 GitHub 인프라에 의존하는 기능은 로컬에서 동작하지 않습니다. 저희는 액세스 키 방식으로 자격 증명을 넣고 있습니다.
+
+## 왜 혼자 담당하는 프로젝트에만 쓰는가
+
+act로 배포하면 비용과 속도를 얻는 대신 내주는 것이 있습니다.
+
+- **배포 기록이 남지 않습니다.** GitHub의 Actions 탭에는 누가 언제 어떤 커밋을 배포했는지 남지만, act의 실행 로그는 제 터미널에만 있습니다.
+- **배포가 제 컴퓨터에 묶입니다.** 시크릿 파일과 Docker 환경이 제 컴퓨터에 있으므로, 다른 사람이 같은 배포를 하려면 같은 준비를 해야 합니다.
+- **운영 자격 증명이 로컬에 평문으로 있습니다.**
+
+혼자 담당하는 프로젝트에서는 이 셋이 큰 문제가 아닙니다. 배포하는 사람이 저 하나뿐이기 때문입니다. 여러 사람이 함께 배포하는 프로젝트라면 기록과 재현성이 더 중요하므로 GitHub 러너를 그대로 쓰는 편이 낫습니다.
+
+워크플로 파일이 그대로이기 때문에, 프로젝트에 사람이 늘어나면 아무것도 고치지 않고 GitHub Actions로 돌아갈 수 있습니다.
+
+## 마무리
+
+act는 GitHub Actions를 버리는 선택이 아니라, 같은 워크플로를 어디서 실행할지 고르는 선택입니다. 혼자 담당하는 프로젝트에서 러너 비용과 빌드 대기 시간이 아깝다면, `brew install act` 후 `act -W` 한 줄로 시작할 수 있습니다.

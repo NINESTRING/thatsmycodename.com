@@ -1,0 +1,226 @@
+export const metadata = {
+  title: "Reaching RDS in a private subnet from your laptop: the options, and kubectl port-forward + socat",
+  description: "A comparison of five ways to reach a private RDS instance, followed by the kubectl port-forward + socat proxy setup our team uses and where it falls short.",
+};
+
+## Introduction
+
+Putting RDS in a private subnet is the default. The trouble starts afterwards. Developers need to check queries from their own machines, verify migrations, and look at the data directly during an incident.
+
+I have solved this in several ways myself. At first I added a single route for the office IP to the internet gateway in the RDS subnet's route table, so RDS could be reached from the office network only. Later I installed phpMyAdmin on an EC2 instance and looked at the data through it. At another company, a Site-to-Site VPN let the office network connect straight to private AWS addresses, but it opened far too much and did not look good for security. Then I met the approach of connecting through a proxy. The team was already using it when I joined, and it is the best of the methods I have used, which is why I am writing it up.
+
+This post compares the ways to reach a private RDS instance, then describes the `kubectl port-forward` + socat proxy setup our team uses and its limits.
+
+We judged each method on five criteria.
+
+- **Inbound exposure**: does a port have to be opened to the internet or the office network?
+- **Credential management**: do SSH keys or fixed passwords have to be handed out and taken back?
+- **Access control and audit**: is access managed in one place, and is it recorded?
+- **Cost and operational load**: which resources have to be created and maintained?
+- **Usability**: can a developer use it with a single command?
+
+## The options
+
+| Method | Extra resources | Inbound exposure | Access control | Cost |
+| --- | --- | --- | --- | --- |
+| Bastion + SSH tunnel | EC2 in a public subnet | Port 22 | SSH keys, security groups | EC2 running all the time |
+| SSM port forwarding | Relay EC2 in a private subnet | None | IAM | Small EC2, plus VPC endpoints if there is no NAT |
+| EC2 Instance Connect Endpoint | Endpoint and a relay EC2 | None | IAM | The endpoint is free, the EC2 is not |
+| kubectl port-forward | Proxy pod in the cluster | None | Kubernetes RBAC | One more pod in an existing cluster |
+| Client VPN | VPN endpoint | VPN endpoint | Authorization rules, security groups | Billed for subnet association time and connection time |
+
+### Bastion + SSH tunnel
+
+A jump server sits in a public subnet and you open a tunnel with `ssh -L`. It is simple and everyone knows it, but port 22 has to be open, and keys have to be handed out and taken back every time someone joins or leaves. Tracing who connected and when takes extra work.
+
+### SSM Session Manager port forwarding
+
+SSM cannot attach to RDS directly, because the SSM agent cannot be installed on RDS. So you keep one relay EC2 with the agent in a private subnet and forward to RDS through it.
+
+```bash
+aws ssm start-session \
+  --target i-0123456789abcdef0 \
+  --document-name AWS-StartPortForwardingSessionToRemoteHost \
+  --parameters '{"host":["mydb.cluster-xxxx.ap-northeast-2.rds.amazonaws.com"],"portNumber":["3306"],"localPortNumber":["13306"]}'
+```
+
+The agent opens the connection outwards, so no inbound rule is needed. Permissions are managed in IAM, and session starts are recorded in CloudTrail. Without EKS, this is the safest choice. One thing to watch: this SSM document accepts any address in its `host` parameter. A tunnel can be opened to anything the relay EC2 can reach, so to narrow it you have to create a custom document with the host fixed and allow only that one.
+
+### EC2 Instance Connect Endpoint
+
+You create an endpoint in the VPC and SSH into instances that have no public IP. It needs no agent, but it only allows ports 22 and 3389, so reaching RDS still means going through an EC2 and opening an SSH tunnel on top.
+
+### kubectl port-forward
+
+A proxy pod in the cluster passes traffic on to RDS, and you port-forward to that pod from your machine. If you already run EKS, the pod is the only new thing. The rest of this post covers it in detail.
+
+### Client VPN
+
+The laptop joins the VPC network directly. You connect to private addresses without opening a tunnel, which makes it the easiest to use. In return the reachable range grows, so authorization rules and security groups need careful management, and the cost follows usage time.
+
+## What our team uses
+
+Two things were already in place in our environment: an EKS cluster, and an authentication setup where an SSO login yields temporary AWS credentials and an EKS token.
+
+Under those conditions `kubectl port-forward` adds the least. It needs no relay EC2, no VPN endpoint and no new permission system. Once the proxy pod is deployed, the existing Kubernetes authentication and RBAC do the access control.
+
+For servers rather than databases we use SSM Session Manager. The agent can be installed on EC2, so we connect directly without a relay node. The method follows the kind of target.
+
+## Implementation
+
+### The whole path
+
+```text
+Local client (127.0.0.1:13306)
+  └─ kubectl port-forward
+       └─ EKS API server (authentication, authorization)
+            └─ socat pod: TCP-LISTEN:3306 → TCP:mydb.example.com:3306
+                 └─ Route53 CNAME
+                      └─ RDS cluster endpoint
+```
+
+### Why a proxy pod is needed
+
+`kubectl port-forward` can only forward to pods inside the cluster. It cannot go straight to an address outside it, such as RDS. So a relay pod has to take the TCP connection it receives and pass it on to RDS unchanged.
+
+### L4 relay with socat
+
+We use socat for the relay. socat is a command-line tool that joins two endpoints in both directions, and a single command with no config file is enough for a TCP relay.
+
+```yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: app-mysql-proxy
+spec:
+  serviceName: app-mysql-proxy
+  replicas: 1
+  selector:
+    matchLabels:
+      app: app-mysql-proxy
+  template:
+    metadata:
+      labels:
+        app: app-mysql-proxy
+    spec:
+      containers:
+        - name: socat
+          image: alpine/socat
+          command:
+            - socat
+            - TCP-LISTEN:3306,fork,reuseaddr
+            - TCP:mydb.example.com:3306
+          ports:
+            - containerPort: 3306
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["NET_BIND_SERVICE"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-mysql-proxy
+spec:
+  type: ClusterIP
+  selector:
+    app: app-mysql-proxy
+  ports:
+    - port: 3306
+      targetPort: 3306
+```
+
+`TCP-LISTEN:3306` waits for connections on port 3306 of the pod. When one arrives, socat opens a new connection to `TCP:mydb.example.com:3306` and joins the two. `fork` creates a child process per connection, so several people can use it at once. The process only moves bytes, so requests of 50m CPU and 64Mi memory are enough.
+
+We deployed it as a StatefulSet, but it uses neither volumes nor stable identities, so a Deployment works exactly the same.
+
+socat does not interpret the bytes passing through. It does not terminate TLS, takes no part in authentication and does no connection pooling. The database login and TLS encryption happen between the client and RDS as usual, so the proxy never sees passwords or queries. With no features, there is almost nothing to operate.
+
+From the RDS side, the proxy pod is the client. The RDS security group therefore has to allow the database port from wherever the pod's traffic originates: the node security group, or the pod's own group if you use security groups for pods.
+
+### Indirection through a CNAME
+
+The manifest does not name the RDS endpoint. It names a CNAME in a domain we manage, and that CNAME points at the RDS cluster endpoint in Route53. When the database changes, we change the DNS record and leave the manifest alone.
+
+After the CNAME changes, established connections stay on the old database, and new connections go to the new endpoint once the DNS cache expires, about a minute later. This works because socat resolves the hostname again in the child process for each connection, so the proxy does not need a restart. The proxy for our clone has been up for weeks without a restart, following a clone that changes every day.
+
+Clones of the production database are where this pays off most. Around midnight each day a batch job creates a fresh clone of production and deletes the previous one, and a fixed CNAME always points at that day's clone. Developers run heavy reads and verification queries against the clone instead of production, and neither the proxy nor the connect command changes when the clone is replaced.
+
+### ClusterIP only, no Ingress
+
+Every proxy Service is a ClusterIP. A ClusterIP is a virtual IP that only works inside the cluster and is not routable from outside. We created no Ingress or LoadBalancer for databases either.
+
+That leaves `kubectl port-forward` as the only path to the proxy from outside the cluster. The command does not connect to the proxy directly. It opens a tunnel to the pod through the Kubernetes API server. This guarantees the following.
+
+- A valid token is required. Without an SSO login, no tunnel can be opened.
+- Only users with the `pods/portforward` permission in RBAC can use it.
+- A network scan does not reveal the database proxy port.
+
+Had the Service been a LoadBalancer, anyone who knew the address could get as far as the database login, with security groups and the database password as the only defenses.
+
+### Authentication flow
+
+```text
+SSO login → temporary AWS credentials → EKS token → kubectl port-forward
+```
+
+Developers are not given long-lived credentials. When the session expires they have to log in again to open a tunnel, and someone who leaves loses access the moment their SSO account is disabled.
+
+## Wrapping it in one command
+
+If people have to type the context, namespace, service name and port every time, nobody uses it. So we built an internal CLI, a shell script wrapper.
+
+```bash
+devcli pf dev            # all dev DB tunnels
+devcli pf prd orders     # one prd DB only
+devcli pf --status       # list running tunnels
+devcli pf --stop         # stop all tunnels
+```
+
+Inside, there is a table that maps an environment and target name to a context, service and port, and the line below. That is all.
+
+```bash
+nohup kubectl --context="$ctx" -n "$ns" port-forward "svc/${svc}" "${lport}:${rport}" \
+  </dev/null >"$logfile" 2>&1 &
+echo $! >"$pidfile"
+```
+
+These are the parts we refined through use.
+
+- **Background tunnels**: the tunnel runs detached from the terminal and leaves a pid file, so it survives closing the terminal and can be checked and stopped.
+- **Fixed local ports**: each environment has its own port range, so dev and prd are hard to mix up.
+- **Local-only binding**: tunnels listen on 127.0.0.1 only.
+- **Preflight checks**: if the port is already in use or the login has expired, the CLI stops and reports the cause and the command to run next.
+
+We distribute it through a Homebrew tap. Installing is `brew install`, updating is `brew upgrade`, and versions are pinned by Git tag.
+
+## Limits and trade-offs
+
+**Access control is coarse.** Anyone granted port-forward in the proxies' namespace can reach every proxy in it. To narrow it to single pods, you can list the allowed pod names in `resourceNames` on the Role, and here a StatefulSet helps because its pod names are stable. You then give up forwarding to `svc/name` and have to name the pod yourself. Either way, the final per-database control belongs to database accounts and their privileges.
+
+**The proxy is a single replica.** When the pod restarts, every open connection drops. We accepted that because it serves developer access only.
+
+**Access from inside the cluster has to be blocked separately.** ClusterIP only blocks access from outside the cluster. Other pods in the cluster can still connect to the proxy, and restricting that takes a NetworkPolicy.
+
+**Nothing inside the tunnel is recorded.** The API server audit log shows who requested a port-forward and when, but not which queries they ran. Query auditing has to come from the database's own audit log.
+
+**TLS hostname verification does not match.** The client connects to 127.0.0.1, while the RDS certificate is issued for the RDS endpoint name. Modes that verify the hostname fail, so you either lower verification to checking the CA or map the endpoint name locally in the hosts file.
+
+**It is not meant for permanent connections.** `kubectl port-forward` goes through the API server and can drop after a long idle period. It is enough for temporary access by people, but not for an application's standing connections or for bulk data transfer.
+
+## Recommendations by situation
+
+- **You already run EKS**: `kubectl port-forward` + a proxy pod. It adds the fewest resources.
+- **You have no EKS**: SSM port forwarding + a private relay EC2. No inbound port, and IAM controls access.
+- **Many targets and always-on access**: Client VPN. In return, the authorization rules need careful management.
+- **Bastion + SSH**: not recommended for a new setup. If you already use one, moving to SSM is worth considering.
+
+Whichever method you choose, the access path only solves the network problem. Who can see which data is answered only together with database account privileges, audit logs, and tools such as a clone that can stand in for the production database.

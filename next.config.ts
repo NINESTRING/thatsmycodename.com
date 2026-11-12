@@ -1,3 +1,4 @@
+import createMDX from "@next/mdx";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
@@ -17,4 +18,23 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// Blog posts are MDX files under `src/content/blog/`, imported by the blog routes.
+// Turbopack needs plugins named as strings, with serializable options only.
+const withMDX = createMDX({
+  options: {
+    remarkPlugins: ["remark-gfm"],
+    rehypePlugins: [
+      [
+        "rehype-pretty-code",
+        {
+          // Colors come out as `--shiki-light` / `--shiki-dark`; globals.css picks one.
+          theme: { light: "github-light", dark: "github-dark" },
+          keepBackground: false,
+          bypassInlineCode: true,
+        },
+      ],
+    ],
+  },
+});
+
+export default withMDX(nextConfig);
