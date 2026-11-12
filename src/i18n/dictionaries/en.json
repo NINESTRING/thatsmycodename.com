@@ -1,7 +1,7 @@
 {
   "site": {
     "title": "thatsmycodename",
-    "description": "Portfolio, resume, and blog"
+    "description": "Projects, resume, and blog of ninestring, a backend developer"
   },
   "nav": {
     "projects": "Projects",
@@ -19,14 +19,14 @@
     "github": "GitHub"
   },
   "home": {
-    "eyebrow": "Software Engineer",
+    "eyebrow": "Backend Developer · ninestring",
     "heading": "Build. Refine. Write it down.",
-    "body": "A home for the things I have made, the work I have done, and what I learned along the way.",
+    "body": "Five years building and running backends for pet-tech services. From IoT sensor logs to subscription billing, AI consultation and a homelab, this is where I keep what I made and what I learned.",
     "primaryCta": "View projects",
     "secondaryCta": "Read resume",
     "sections": {
-      "projects": "Things I have built and run myself.",
-      "resume": "Experience and skills on a single page.",
+      "projects": "Five projects I built and ran: a pet-tech platform, prescription commerce, realtime matching and a homelab.",
+      "resume": "Five years of Node.js and TypeScript backend work on a single page.",
       "blog": "Notes on what I learn while building."
     }
   },

@@ -3,6 +3,7 @@ export const siteConfig = {
   url: "https://thatsmycodename.com",
   links: {
     github: "https://github.com/NINESTRING",
+    email: "koohoyn@naver.com",
   },
 } as const;
 
