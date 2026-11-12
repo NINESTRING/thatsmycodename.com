@@ -20,15 +20,16 @@ export default async function HomePage() {
         <p className="mt-6 max-w-xl text-lg text-balance text-muted-foreground sm:text-xl">
           {dict.home.body}
         </p>
-        <div className="mt-9 flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row">
-          <Button asChild size="lg" className="w-full rounded-full sm:w-auto">
+        {/* Two equal grid columns, so both buttons take the width of the longer label. */}
+        <div className="mt-9 grid w-full gap-3 sm:w-auto sm:grid-cols-2">
+          <Button asChild size="lg" className="w-full rounded-full">
             <Link href={`/${locale}/projects/`}>{dict.home.primaryCta}</Link>
           </Button>
           <Button
             asChild
             size="lg"
             variant="secondary"
-            className="w-full rounded-full sm:w-auto"
+            className="w-full rounded-full"
           >
             <Link href={`/${locale}/resume/`}>{dict.home.secondaryCta}</Link>
           </Button>
@@ -47,7 +48,7 @@ export default async function HomePage() {
                   <h2 className="text-2xl font-semibold tracking-tight">
                     {dict.nav[key]}
                   </h2>
-                  <ArrowUpRight className="size-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-foreground" />
+                  <ArrowUpRight className="size-5 shrink-0 text-muted-foreground transition-transform motion-safe:group-hover:translate-x-0.5 motion-safe:group-hover:-translate-y-0.5 group-hover:text-foreground" />
                 </div>
                 <p className="text-muted-foreground">
                   {dict.home.sections[key]}

@@ -1,7 +1,7 @@
 {
   "site": {
     "title": "thatsmycodename",
-    "description": "Projects, resume, and blog of ninestring, a backend developer"
+    "description": "Projects, resume, and blog of Koohyeon Jeong, a backend developer"
   },
   "nav": {
     "projects": "Projects",
@@ -9,8 +9,9 @@
     "blog": "Blog"
   },
   "header": {
-    "home": "Home",
+    "skipToContent": "Skip to content",
     "openMenu": "Open menu",
+    "closeMenu": "Close menu",
     "menu": "Menu",
     "toggleTheme": "Toggle light/dark theme",
     "switchLanguage": "한국어로 보기"
@@ -19,7 +20,7 @@
     "github": "GitHub"
   },
   "home": {
-    "eyebrow": "Backend Developer · ninestring",
+    "eyebrow": "Backend Developer · Koohyeon Jeong",
     "heading": "Build. Refine. Write it down.",
     "body": "Five years building and running backends for pet-tech services. From IoT sensor logs to subscription billing, AI consultation and a homelab, this is where I keep what I made and what I learned.",
     "primaryCta": "View projects",

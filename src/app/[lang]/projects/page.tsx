@@ -44,7 +44,7 @@ export default async function Page() {
                 {project.title}
               </h2>
               <p className="mt-1 text-muted-foreground">{project.role}</p>
-              <p className="mt-5 max-w-3xl text-lg">{project.summary}</p>
+              <p className="mt-5 max-w-xl text-lg">{project.summary}</p>
 
               <ul className="mt-5 flex flex-wrap gap-1.5">
                 {project.stack.map((tech) => (

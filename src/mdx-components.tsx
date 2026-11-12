@@ -1,6 +1,10 @@
 import type { MDXComponents } from "mdx/types";
 
-/** Element styles for MDX content, which today is the body of a blog post. */
+/**
+ * Element styles for MDX content, which today is the body of a blog post.
+ * Running text is capped at `max-w-xl` (about 75 characters in English);
+ * headings, code blocks and tables keep the full column.
+ */
 const components: MDXComponents = {
   h2: (props) => (
     <h2
@@ -11,7 +15,7 @@ const components: MDXComponents = {
   h3: (props) => (
     <h3 className="mt-10 text-xl font-semibold tracking-tight" {...props} />
   ),
-  p: (props) => <p className="mt-5" {...props} />,
+  p: (props) => <p className="mt-5 max-w-xl" {...props} />,
   a: (props) => (
     <a
       className="font-medium underline decoration-muted-foreground/50 underline-offset-4 transition-colors hover:decoration-foreground"
@@ -21,19 +25,19 @@ const components: MDXComponents = {
   strong: (props) => <strong className="font-semibold" {...props} />,
   ul: (props) => (
     <ul
-      className="mt-5 list-disc space-y-2 pl-5 marker:text-muted-foreground/60"
+      className="mt-5 max-w-xl list-disc space-y-2 pl-5 marker:text-muted-foreground/60"
       {...props}
     />
   ),
   ol: (props) => (
     <ol
-      className="mt-5 list-decimal space-y-2 pl-5 marker:text-muted-foreground/60"
+      className="mt-5 max-w-xl list-decimal space-y-2 pl-5 marker:text-muted-foreground/60"
       {...props}
     />
   ),
   blockquote: (props) => (
     <blockquote
-      className="mt-5 border-l-2 border-border pl-5 text-muted-foreground [&>:first-child]:mt-0"
+      className="mt-5 max-w-xl border-l-2 border-border pl-5 text-muted-foreground [&>:first-child]:mt-0"
       {...props}
     />
   ),
@@ -52,7 +56,8 @@ const components: MDXComponents = {
     />
   ),
   table: (props) => (
-    <div className="mt-5 overflow-x-auto">
+    // Focusable, so the keyboard can scroll a table wider than the column.
+    <div className="mt-5 overflow-x-auto" tabIndex={0}>
       <table
         className="w-full min-w-[40rem] border-collapse text-left text-[0.9375rem]"
         {...props}

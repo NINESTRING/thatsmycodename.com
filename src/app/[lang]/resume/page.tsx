@@ -11,7 +11,10 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: dict.nav.resume, description: resume[locale].lead };
 }
 
-/** One resume section: label on the left, content on the right from `md` up. */
+/**
+ * One resume section: label on the left, content on the right from `md` up.
+ * Running text inside is capped at `max-w-xl`, about 75 characters in English.
+ */
 function Section({ label, children }: { label: string; children: ReactNode }) {
   return (
     <section className="grid gap-5 border-t border-border/60 py-10 md:grid-cols-[11rem_1fr] md:gap-10 sm:py-12">
@@ -21,17 +24,18 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function Role({ role }: { role: ResumeRole }) {
+/** `as` is the heading level, which depends on how deep the role sits in the page. */
+function Role({ role, as: Heading }: { role: ResumeRole; as: "h3" | "h4" }) {
   return (
     <div>
       <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
-        <h4 className="font-semibold">{role.title}</h4>
+        <Heading className="font-semibold">{role.title}</Heading>
         <p className="shrink-0 text-sm text-muted-foreground tabular-nums">
           {role.period}
         </p>
       </div>
-      <p className="mt-2 text-muted-foreground">{role.summary}</p>
-      <ul className="mt-3 list-disc space-y-1.5 pl-5 marker:text-muted-foreground/60">
+      <p className="mt-2 max-w-xl text-muted-foreground">{role.summary}</p>
+      <ul className="mt-3 max-w-xl list-disc space-y-1.5 pl-5 marker:text-muted-foreground/60">
         {role.bullets.map((bullet) => (
           <li key={bullet}>{bullet}</li>
         ))}
@@ -51,7 +55,7 @@ export default async function Page() {
 
       <div className="container-page pb-20 leading-relaxed sm:pb-28">
         <Section label={labels.summary}>
-          <div className="space-y-3">
+          <div className="max-w-xl space-y-3">
             {content.summary.map((paragraph) => (
               <p key={paragraph}>{paragraph}</p>
             ))}
@@ -85,12 +89,14 @@ export default async function Page() {
                   </p>
                 </div>
                 {company.note && (
-                  <p className="mt-2 text-muted-foreground">{company.note}</p>
+                  <p className="mt-2 max-w-xl text-muted-foreground">
+                    {company.note}
+                  </p>
                 )}
                 {company.roles.length > 0 && (
                   <div className="mt-6 space-y-8 border-l border-border/60 pl-5">
                     {company.roles.map((role) => (
-                      <Role key={role.title} role={role} />
+                      <Role key={role.title} role={role} as="h4" />
                     ))}
                   </div>
                 )}
@@ -102,13 +108,13 @@ export default async function Page() {
         <Section label={labels.sideProjects}>
           <div className="space-y-8">
             {content.sideProjects.map((role) => (
-              <Role key={role.title} role={role} />
+              <Role key={role.title} role={role} as="h3" />
             ))}
           </div>
         </Section>
 
         <Section label={labels.skills}>
-          <dl className="space-y-4">
+          <dl className="max-w-xl space-y-4">
             {content.skills.map(({ label, items }) => (
               <div key={label}>
                 <dt className="font-semibold">{label}</dt>

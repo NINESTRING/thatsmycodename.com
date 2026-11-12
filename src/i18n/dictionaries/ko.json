@@ -1,7 +1,7 @@
 {
   "site": {
     "title": "thatsmycodename",
-    "description": "백엔드 개발자 ninestring의 프로젝트, 이력서, 블로그"
+    "description": "백엔드 개발자 정구현의 프로젝트, 이력서, 블로그"
   },
   "nav": {
     "projects": "프로젝트",
@@ -9,8 +9,9 @@
     "blog": "블로그"
   },
   "header": {
-    "home": "홈",
+    "skipToContent": "본문으로 건너뛰기",
     "openMenu": "메뉴 열기",
+    "closeMenu": "메뉴 닫기",
     "menu": "메뉴",
     "toggleTheme": "라이트/다크 테마 전환",
     "switchLanguage": "Switch to English"
@@ -19,7 +20,7 @@
     "github": "GitHub"
   },
   "home": {
-    "eyebrow": "백엔드 개발자 · ninestring",
+    "eyebrow": "백엔드 개발자 · 정구현",
     "heading": "만들고, 다듬고, 기록합니다.",
     "body": "펫테크 서비스의 백엔드를 5년간 만들고 운영해 왔습니다. IoT 센서 로그부터 정기결제, AI 상담, 홈랩까지 만든 것과 배운 것을 이곳에 모아 둡니다.",
     "primaryCta": "프로젝트 보기",

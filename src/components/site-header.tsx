@@ -19,7 +19,6 @@ export async function SiteHeader() {
       <div className="container-page flex h-14 items-center justify-between gap-4">
         <Link
           href={`/${locale}/`}
-          aria-label={dict.header.home}
           className="text-[15px] font-semibold tracking-tight"
         >
           {siteConfig.name}
@@ -35,6 +34,7 @@ export async function SiteHeader() {
           <MobileNav
             links={links}
             openLabel={dict.header.openMenu}
+            closeLabel={dict.header.closeMenu}
             title={dict.header.menu}
           />
         </div>

@@ -8,6 +8,8 @@ const nextConfig: NextConfig = {
   trailingSlash: true,
   // The default image optimizer needs a server, which a static export does not have.
   images: { unoptimized: true },
+  // The root layout lives under `[lang]`, so the 404 page is `app/global-not-found.tsx`.
+  experimental: { globalNotFound: true },
   turbopack: {
     rules: {
       "*.css": {
@@ -28,7 +30,11 @@ const withMDX = createMDX({
         "rehype-pretty-code",
         {
           // Colors come out as `--shiki-light` / `--shiki-dark`; globals.css picks one.
-          theme: { light: "github-light", dark: "github-dark" },
+          // These two keep every token at 4.5:1 or better on the `bg-muted` code block.
+          theme: {
+            light: "github-light-high-contrast",
+            dark: "github-dark-default",
+          },
           keepBackground: false,
           bypassInlineCode: true,
         },

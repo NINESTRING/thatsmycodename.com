@@ -59,7 +59,7 @@ export default async function Page({
           <h1 className="mt-3 text-3xl leading-tight font-semibold tracking-tight sm:text-4xl sm:leading-tight">
             {metadata.title}
           </h1>
-          <p className="mt-4 text-lg text-muted-foreground">
+          <p className="mt-4 max-w-xl text-lg text-muted-foreground">
             {metadata.description}
           </p>
         </header>
