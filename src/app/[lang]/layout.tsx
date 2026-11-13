@@ -57,6 +57,15 @@ export default async function RootLayout({
           </main>
           <SiteFooter />
         </ThemeProvider>
+        {/* Umami tracker. Left out of `next dev`, where nothing serves /script.js. */}
+        {process.env.NODE_ENV === "production" && (
+          <script
+            defer
+            src={siteConfig.analytics.scriptSrc}
+            data-website-id={siteConfig.analytics.websiteId}
+            data-domains={siteConfig.analytics.domains}
+          />
+        )}
       </body>
     </html>
   );

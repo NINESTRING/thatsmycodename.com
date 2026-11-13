@@ -30,4 +30,8 @@ Deployment manifests live in the homelab GitOps repository, not here.
 - `nginx/default.conf` — static file server config: `/` language redirect, caching, `/healthz`
 - `src/components/ui/` — shadcn/ui components (`pnpm dlx shadcn@latest add <name>`)
 
+Visits are counted by a self-hosted [Umami](https://umami.is) (no cookies). `src/app/[lang]/layout.tsx` loads
+`/script.js` in production builds; that path and `/api/send` are not in this image, the Cloudflare Tunnel routes
+them to Umami. The website ID is in `src/config/site.ts`.
+
 There is no page at `/`. In production nginx redirects it to `/ko/` or `/en/` based on `Accept-Language`.
