@@ -42,7 +42,7 @@ It decides which Docker image stands in for `runs-on: ubuntu-latest` in a workfl
 
 ## Deploying
 
-Our server's workflows build a Docker image and push it to Amazon ECR, then deploy dev over SSH and production to ECS. Locally, I run them like this.
+The workflows for the server I look after build a Docker image and push it to Amazon ECR, then deploy dev over SSH and production to ECS. Locally, I run them like this.
 
 ```bash
 # deploy dev
@@ -52,7 +52,7 @@ act -W .github/workflows/dev.yml
 act -W .github/workflows/prod.yml
 ```
 
-With no event given, act runs the `push` event. Both of our workflows are `on: push`, so naming the file is enough.
+With no event given, act runs the `push` event. Both workflows are `on: push`, so naming the file is enough.
 
 A few other commands I use often.
 
@@ -118,7 +118,7 @@ Building an amd64 image on an arm64 Mac goes through emulation, so it is slower 
 
 By default act does not fetch the remote repository in the `actions/checkout` step. It copies the local working directory into the container instead. Deploying that way puts uncommitted changes into the build.
 
-Our workflows avoid this by naming the branch in the checkout step.
+These workflows avoid this by naming the branch in the checkout step.
 
 ```yaml
 - name: Checkout github code
@@ -140,7 +140,7 @@ For a private repository, the token for fetching the code from the remote has to
 
 ### 4. It is not identical to GitHub
 
-Features that depend on GitHub's infrastructure, such as OIDC-based authentication (`role-to-assume`), do not work locally. We supply credentials as access keys.
+Features that depend on GitHub's infrastructure, such as OIDC-based authentication (`role-to-assume`), do not work locally. I supply credentials as access keys.
 
 ## Why only on projects I own alone
 
@@ -148,9 +148,11 @@ Deploying with act buys cost and speed, and gives some things up in return.
 
 - **No deploy history is kept.** GitHub's Actions tab records who deployed which commit and when, while act's run log exists only in my terminal.
 - **Deploys are tied to my machine.** The secrets file and the Docker environment live on my computer, so anyone else who wants to run the same deploy has to prepare the same things.
-- **Production credentials sit locally in plain text.**
+- **With a `.secrets` file, production credentials sit locally in plain text.**
 
-On a project I own alone, these three are not a big problem, because I am the only one who deploys. On a project where several people deploy, history and reproducibility matter more, so it is better to stay on GitHub's runners.
+On a project I own alone, the first two are not a big problem, because I am the only one who deploys. On a project where several people deploy, history and reproducibility matter more, so it is better to stay on GitHub's runners.
+
+Credentials are different. Even when I am the only one who deploys, a lost computer or a leaked file exposes production along with it. So it is safer to put a dedicated key in `.secrets` that has only the permissions the deploy needs, and to rotate it regularly.
 
 Because the workflow files are unchanged, the project can go back to GitHub Actions without touching anything when more people join.
 
