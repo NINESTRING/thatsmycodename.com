@@ -1,5 +1,5 @@
 export const metadata = {
-  title: "One request froze the server for 8 seconds: tracking down a GraphQL lazy relation N+1",
+  title: "One request took 8 seconds: tracking down a GraphQL lazy relation N+1",
   description: "A single GraphQL query written by an outside user was causing about 4,900 database queries. How I traced it, and how two fixes took it from 8.6 seconds to 0.36.",
 };
 
@@ -11,9 +11,9 @@ In the ECS service metrics, maximum CPU normally sat around 10% and then briefly
 
 {/* TODO: CloudWatch graph screenshot, before the fix */}
 
-The server is Node.js (Express + Apollo Server 2) with type-graphql and TypeORM, running as a single task. It has no cron jobs or schedulers inside it. So the spikes had to come from requests arriving from outside.
+The server is Node.js (Express + Apollo Server 2) with type-graphql and TypeORM. The query and entity names in the code below are changed from the real ones. The server has no cron jobs or schedulers inside it. So the spikes had to come from requests arriving from outside.
 
-## Trace 1: finding the culprit in the request log
+## Trace 1: finding the cause in the request log
 
 For every successful GraphQL request, our server writes the operation name, elapsed time, variables and user to a database table. For requests that take longer than 500ms, it also stores part of the response body. Even without an APM, this one table told me a lot.
 
@@ -21,7 +21,7 @@ I queried the minutes around a spike, sorted by elapsed time.
 
 ```sql
 SELECT creationTime, operationName, elapsed, userId
-FROM successLog
+FROM requestLog
 WHERE creationTime BETWEEN '...' AND '...'
 ORDER BY elapsed DESC
 LIMIT 50;
@@ -29,100 +29,87 @@ LIMIT 50;
 
 | Time | Operation | Elapsed |
 | --- | --- | --- |
-| 14:36 | `GetIotDetail` | 7,921ms |
-| 14:39 | `GetIotDetail` | 8,450ms |
-| 14:50 | `GetIotDetail` | 8,770ms |
-| 15:11 | `GetIotDetail` | 8,660ms |
+| 14:36 | `GetDeviceDetail` | 7,921ms |
+| 14:39 | `GetDeviceDetail` | 8,450ms |
+| 14:50 | `GetDeviceDetail` | 8,770ms |
+| 15:11 | `GetDeviceDetail` | 8,660ms |
 
 All four came from the same user and the same device, and their times matched the spikes on the graph. Counting requests per minute showed only 2 to 4 requests in total during each of those minutes. Requests were not piling up. One request was heavy.
 
 ## Trace 2: the app did not send it
 
-Something was odd. Our app uses `getIotDetail` too. It was built for reading a device's status, and in the app it has no reason to be slow. Yet every slow call came from one user. Counting the operations that user had sent made the picture clear.
+Something was odd. Our app uses `getDeviceDetail` too. It was built for reading a device's status, and in the app it has no reason to be slow. Yet every slow call came from one user. Counting the operations that user had sent made the picture clear.
 
 | Operation | Count | What it means |
 | --- | --- | --- |
-| Litter log query | 5,979 | Polling about every 80 seconds for more than five days |
+| Usage log query | 5,979 | Polling about every 80 seconds for more than five days |
 | `Login` | 44 | Direct logins, not the app's automatic login |
-| `GetIotDetail` | 43 | The query in question |
+| `GetDeviceDetail` | 43 | The query in question |
 | `X` | 6 | Hand-written experimental queries |
 
 The user logged in, sent a few experimental queries, and then started calling a query they had put together themselves on a schedule. This was not the app. It was a script written by an outside user.
 
 They were reading their own device's data with their own account, so there is no permission problem. They most likely wanted to use their device's data in their own way.
 
-## An IoT server in the age of AI
-
-I expect more calls like this. Analyzing an app's traffic and writing a script to call its server used to take a good deal of time and knowledge. Now an AI tool does it quickly. For a user who wants to connect their device's data to home automation, or build their own dashboard, the barrier to entry is practically gone.
-
-IoT services in particular come with a clear motive, "my device, my data", so there is real demand for calling the server freely from outside the official app. For the server, one assumption changes.
-
-> "Our app is the only client" no longer holds.
-
-People have called our server from outside the app before. But back then they sent the app's own queries as they were. Only the caller was different. The queries the server received had already been tested and their performance was known.
-
-This time was different. The user picked the fields they wanted and combined them into a query of their own. The app has never sent that query, so it had never been tested and nobody had checked its performance. From now on, the server has to be designed on the assumption that such a query can arrive at any time.
-
 ## Trace 3: why 8 seconds
 
-The resolver code was light. It reads one device with a few joins and returns the `Iot` entity as it is.
+The resolver code was light. It reads one device with a few joins and returns the `Device` entity as it is.
 
 ```ts
-@Query(() => Iot)
-async getIotDetail(@Arg('data') data: IotIdArgs) {
-  const iot = await this.iotRepo
-    .createQueryBuilder('iot')
-    .leftJoinAndSelect('iot.pet', 'pet')
+@Query(() => Device)
+async getDeviceDetail(@Arg('data') data: DeviceIdArgs) {
+  const device = await this.deviceRepo
+    .createQueryBuilder('device')
     // ...
-    .where('iot.id = :iotId', { iotId: data.iotId })
+    .where('device.id = :deviceId', { deviceId: data.deviceId })
     .getOne();
-  return iot;
+  return device;
 }
 ```
 
 The clue was in the stored response body.
 
 ```text
-{"getIotDetail":{"poopLogs":[
-  {"id":..., "newCatWeight":5745, "duration":50, "cat":null},
-  {"id":..., "newCatWeight":3214, "duration":61, "cat":{"nickname":"..."}},
+{"getDeviceDetail":{"logs":[
+  {"id":..., "weight":5745, "duration":50, "pet":null},
+  {"id":..., "weight":3214, "duration":61, "pet":{"nickname":"..."}},
   ...
 ```
 
-The response contained the device's entire list of litter logs, and each log had its cat attached.
+The response contained the device's entire list of usage logs, and each log had its pet attached.
 
 ### When a lazy relation becomes a GraphQL field
 
 The entities declare the relations like this.
 
 ```ts
-// Iot
-@Field(() => [PoopLog])
-@OneToMany(() => PoopLog, (poopLog) => poopLog.iot)
-poopLogs: Promise<PoopLog[]>;
+// Device
+@Field(() => [DeviceLog])
+@OneToMany(() => DeviceLog, (log) => log.device)
+logs: Promise<DeviceLog[]>;
 
-// PoopLog
-@Field(() => Cat, { nullable: true })
-@ManyToOne(() => Cat, (cat) => cat.poopLogs)
-cat: Promise<Cat | null>;
+// DeviceLog
+@Field(() => Pet, { nullable: true })
+@ManyToOne(() => Pet, (pet) => pet.logs)
+pet: Promise<Pet | null>;
 ```
 
 In TypeORM, declaring a relation's type as `Promise` makes it a lazy relation. A query runs the first time the property is accessed. Add `@Field` to it and the following chain holds.
 
 > The client selects a field in its query = the server reads that property = a database query runs
 
-This is convenient: related data comes along without writing a resolver. But a query that returns an entity as it is, like `getIotDetail`, opens up every relation on that entity. That is how a query built for reading status could also pull the litter logs. On top of that, the shape of the client's query, not the server's code, decides which database queries run. That problem stays hidden as long as our app is the only client.
+This is convenient: related data comes along without writing a resolver. But a query that returns an entity as it is, like `getDeviceDetail`, opens up every relation on that entity. That is how a query built for reading status could also pull the usage logs. On top of that, the shape of the client's query, not the server's code, decides which database queries run. That problem stays hidden as long as our app is the only client.
 
 The query the outside user wrote looked like this.
 
 ```graphql
-query GetIotDetail($data: IotIdArgs!) {
-  getIotDetail(data: $data) {
-    poopLogs {
+query GetDeviceDetail($data: DeviceIdArgs!) {
+  getDeviceDetail(data: $data) {
+    logs {
       id
-      newCatWeight
+      weight
       duration
-      cat { nickname }
+      pet { nickname }
     }
   }
 }
@@ -131,41 +118,35 @@ query GetIotDetail($data: IotIdArgs!) {
 It caused two things on the server.
 
 - **A full read.** Lazy loading has no place for a condition or a `LIMIT`. A field read off the entity cannot be limited to a date range, so every request returns every log. It read all 4,910 logs the device had collected over a year.
-- **N+1.** Lazy loading happens one object at a time. Reading `cat` on each of the 4,910 logs ran 4,910 more queries.
+- **N+1.** Lazy loading happens one object at a time. Reading `pet` on each of the 4,910 logs ran 4,910 more queries.
 
 ```sql
-SELECT ... FROM poopLog WHERE iotId = ?      -- once, 4,910 rows
-SELECT ... FROM cat ... WHERE poopLog.id = ? -- 4,910 times
+SELECT ... FROM log WHERE deviceId = ?      -- once, 4,910 rows
+SELECT ... FROM pet ... WHERE log.id = ? -- 4,910 times
 ```
 
-Node is single-threaded, so other users' requests that arrived during those 8 seconds were slowed down as well.
+Node is single-threaded, so while the server builds objects from this request's result and serializes them, other users' requests have to wait.
 
 The user only sent a query the server allows. The problem was the server, which had left that query possible.
 
 ## Fix 1: fill the relation ahead of time with one join
 
-A lazy relation does not run a query if its value is already set. So, only when the request selects `poopLogs`, I set it ahead of time to the result of a single query that joins the logs with their cats.
+A lazy relation does not run a query if its value is already set. So, only when the request selects `logs`, I set it ahead of time to the result of a single query that joins the logs with their pets.
 
 ```ts
-async getIotDetail(@Arg('data') data: IotIdArgs, @Info() info: GraphQLResolveInfo) {
-  const iot = /* the existing lookup */;
+async getDeviceDetail(@Arg('data') data: DeviceIdArgs, @Info() info: GraphQLResolveInfo) {
+  const device = /* the existing lookup */;
 
-  const isPoopLogsRequested = info.fieldNodes.some((fieldNode) =>
-    fieldNode.selectionSet?.selections.some(
-      (selection) => selection.kind === 'Field' && selection.name.value === 'poopLogs',
-    ),
-  );
-
-  if (isPoopLogsRequested) {
-    iot.poopLogs = this.poopLogRepo
-      .createQueryBuilder('poopLog')
-      .leftJoinAndSelect('poopLog.cat', 'cat')
-      .where('poopLog.iotId = :iotId', { iotId: iot.id })
-      .orderBy('poopLog.id', 'ASC')
+  if (/* the request selects logs */) {
+    device.logs = this.logRepo
+      .createQueryBuilder('log')
+      .leftJoinAndSelect('log.pet', 'pet')
+      .where('log.deviceId = :deviceId', { deviceId: device.id })
+      .orderBy('log.id', 'ASC')
       .getMany();
   }
 
-  return iot;
+  return device;
 }
 ```
 
@@ -181,19 +162,19 @@ Five seconds were gone, but 3.7 remained.
 
 I traced the remaining 3.7 seconds. The same SQL, run directly against the database, finished quickly. I also checked whether the user had changed their query, but the stored responses were identical before and after the fix.
 
-What remained was the work the server does: building 4,910 entity objects, resolving about 50,000 fields one by one, and serializing the result to JSON. Cutting the number of queries leaves this cost untouched, because it grows with the number of rows.
+What remained was the work the server does: building 4,910 entity objects, resolving about 25,000 selected fields (4,910 logs × 5 fields) one by one, and serializing the result to JSON. Cutting the number of queries leaves this cost untouched, because it grows with the number of rows.
 
 So I cut the number of rows.
 
 ```ts
 const oneMonthAgo = moment().subtract(1, 'month').toDate();
 
-iot.poopLogs = this.poopLogRepo
-  .createQueryBuilder('poopLog')
-  .leftJoinAndSelect('poopLog.cat', 'cat')
-  .where('poopLog.iotId = :iotId', { iotId: iot.id })
-  .andWhere('poopLog.creationTime >= :oneMonthAgo', { oneMonthAgo })
-  .orderBy('poopLog.id', 'ASC')
+device.logs = this.logRepo
+  .createQueryBuilder('log')
+  .leftJoinAndSelect('log.pet', 'pet')
+  .where('log.deviceId = :deviceId', { deviceId: device.id })
+  .andWhere('log.creationTime >= :oneMonthAgo', { oneMonthAgo })
+  .orderBy('log.id', 'ASC')
   .getMany();
 ```
 
@@ -207,15 +188,19 @@ With about one twelfth of the rows, the time fell to about one tenth. The number
 
 {/* TODO: CloudWatch graph screenshot, after the fix */}
 
-This fix changes the response, which gave me pause. But the app uses this query only for status and does not select `poopLogs`, so no app screen is affected.
+This fix changes the response, which gave me pause. But the app uses this query only for status and does not select `logs`, so no app screen is affected. The outside user's script, on the other hand, now receives only one month of logs, without notice.
 
-## What is left to do
+## An IoT server in the age of AI
 
-This fix closes one path. Assuming calls from outside the app will keep growing, these are next.
+I expect more calls like this. Analyzing an app's traffic and writing a script to call its server used to take a good deal of time and knowledge. Now an AI tool does it quickly. For a user who wants to connect their device's data to home automation, or build their own dashboard, the barrier to entry is practically gone.
 
-- **Query depth limit.** Blocks queries that dig endlessly through two-way relations. This query was only 3 levels deep, though, so a depth limit alone would not have caught it.
-- **Query complexity limit.** Adds up a cost per field and rejects queries over the limit before they run. At first it will only record the score without rejecting anything, so I can see the distribution of normal queries.
-- **Schema cleanup.** Log-like relations that keep growing come out of the GraphQL fields, and the ones that are needed get dedicated queries with pagination.
+IoT services in particular come with a clear motive, "my device, my data", so there is real demand for calling the server freely from outside the official app. For the server, one assumption changes.
+
+> "Our app is the only client" no longer holds.
+
+People have called our server from outside the app before. But back then they sent the app's own queries as they were. Only the caller was different. The queries the server received had already been tested and their performance was known.
+
+This time was different. The user picked the fields they wanted and combined them into a query of their own. The app has never sent that query, so it had never been tested and nobody had checked its performance. From now on, the server has to be designed on the assumption that such a query can arrive at any time.
 
 ## What I learned
 
