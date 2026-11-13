@@ -4,6 +4,8 @@ import type { Locale } from "@/i18n/config";
 
 import * as actEn from "./deploy-locally-with-act/en.mdx";
 import * as actKo from "./deploy-locally-with-act/ko.mdx";
+import * as lazyRelationEn from "./graphql-lazy-relation-n-plus-one/en.mdx";
+import * as lazyRelationKo from "./graphql-lazy-relation-n-plus-one/ko.mdx";
 import * as privateRdsEn from "./private-rds-kubectl-port-forward-socat/en.mdx";
 import * as privateRdsKo from "./private-rds-kubectl-port-forward-socat/ko.mdx";
 
@@ -26,6 +28,11 @@ export type Post = {
  * `<slug>/en.mdx` in this folder and list it here.
  */
 export const posts: Post[] = [
+  {
+    slug: "graphql-lazy-relation-n-plus-one",
+    date: "2026-11-13",
+    content: { ko: lazyRelationKo, en: lazyRelationEn },
+  },
   {
     slug: "deploy-locally-with-act",
     date: "2026-11-12",
